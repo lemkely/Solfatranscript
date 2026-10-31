@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Photo → Solfa</title>
+<meta name="theme-color" content="#1565c0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--a:#1565c0;--b1:#d4f1ff;--b2:#7fd0fb;--card:rgba(255,255,255,.75);--tx:#08334f;--ok:#0a8f4d;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--a:#5db4ff;--b1:#06283d;--b2:#0a5a85;--card:rgba(8,40,62,.78);--tx:#dff4ff}}
+:root[data-theme="dark"]{--a:#5db4ff;--b1:#06283d;--b2:#0a5a85;--card:rgba(8,40,62,.78);--tx:#dff4ff}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;min-height:100vh;background:linear-gradient(var(--b1),var(--b2)) fixed;font-family:Roboto,"Segoe UI",system-ui,sans-serif;color:var(--tx)}
+main{max-width:640px;margin:0 auto;padding:14px 16px 48px}
+h1{font-size:2.2rem;font-weight:800;color:var(--a);margin:10px 0 4px}
+h2{font-size:1.1rem;margin:22px 0 6px}
+p{margin:4px 0 12px}
+.btn,button{font:700 1rem inherit;font-family:inherit;border:0;border-radius:12px;padding:12px 16px;background:var(--a);color:#fff;cursor:pointer;margin:0 8px 8px 0;display:inline-block}
+button.alt{background:var(--card);color:var(--tx)}
+button:disabled{opacity:.45}
+button:focus-visible,.btn:focus-within{outline:3px solid #ff9f1c;outline-offset:2px}
+#pv img{max-width:100%;border-radius:12px;margin:6px 0;display:block}
+.pick{position:relative;overflow:hidden}
+.pick input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0}
+#st{font-weight:700;min-height:1.4em}
+textarea{width:100%;min-height:150px;box-sizing:border-box;border-radius:12px;border:2px solid var(--a);background:var(--card);color:var(--tx);padding:10px;font:14px/1.5 ui-monospace,Menlo,Consolas,monospace}
+pre{background:var(--card);border-radius:12px;padding:12px;font:15px/1.55 ui-monospace,Menlo,Consolas,monospace;overflow-x:auto;margin:6px 0;white-space:pre}
+details{margin-top:26px;background:var(--card);border-radius:12px;padding:10px 14px}
+summary{font-weight:700;cursor:pointer}
+input[type=password],input[type=text]{width:100%;box-sizing:border-box;border-radius:12px;border:2px solid var(--a);background:var(--card);color:var(--tx);padding:10px;font:16px ui-monospace,Menlo,Consolas,monospace;margin:8px 0}
+.small{font-size:.9rem;opacity:.85}
+</style></head><body><main>
+<h1>Photo → Solfa</h1>
+<p>Prends en photo une partition en solfège classique : l’app la transcrit en solfa, voix par voix.</p>
+<label class="btn pick">📷 Prendre une photo<input type="file" id="fc" accept="image/*" capture="environment"></label>
+<label class="btn pick">🖼️ Importer des photos<input type="file" id="f" accept="image/*" multiple></label>
+<button id="go" disabled>Lire la partition</button>
+<button id="demo" class="alt">Voir un exemple</button>
+<div id="pv"></div>
+<p id="st" role="status"></p>
+<h2>Notes lues (à corriger si besoin)</h2>
+<p>Une ligne par voix : hauteur + « : » + durée en noires. R = silence.</p>
+<textarea id="tx" spellcheck="false" placeholder="do=G bq=4&#10;S: G4:1 B4:1 R:2"></textarea>
+<button id="re">Mettre à jour le solfa</button>
+<h2>Solfa</h2>
+<pre id="out">Le solfa apparaîtra ici.</pre>
+<button id="cp" class="alt">Copier le solfa</button>
+<details id="set"><summary>⚙️ Réglages (lecture automatique)</summary>
+<p class="small">Pour lire une photo, l’app utilise l’IA de Claude avec ta propre clé API (console.anthropic.com). La clé reste uniquement dans ce téléphone, elle n’est jamais publiée sur GitHub.</p>
+<input type="password" id="key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+<button id="sk">Enregistrer la clé</button><button id="dk" class="alt">Effacer la clé</button>
+</details>
+</main>
+<script>
+const $=id=>document.getElementById(id),st=t=>$("st").textContent=t;
+const PC={C:0,D:2,E:4,F:5,G:7,A:9,B:11},NM=["d","di","r","ri","m","f","fi","s","si","l","li","t"];
+const DEMO=`do=G bq=4
+S: G4:.75 G4:.25 B4:.75 A4:.25 G4:1 B4:1 A4:1 C5:1 C5:1 R:1 D5:2 B4:1 G4:1 A4:2 A4:1 R:1
+A: A4:2 E4:2 E4:2 F#4:1 R:1 G4:3 E4:1 E4:2 F#4:1 R:1
+T: B3:3 G3:1 A3:2 A3:1 R:1 G3:.75 G3:.25 B3:.75 A3:.25 G3:1 B3:1 A3:1 D4:1 D4:1 R:1
+B: G3:2 E3:2 C3:2 D3:1 R:1 B2:2 E3:2 C3:2 D3:1 R:1`;
+const PROMPT=`Tu es un lecteur de partitions (OMR) très précis. Lis cette partition à plusieurs voix et réponds UNIQUEMENT avec ce format texte, sans aucun commentaire :
+do=<note qui est Do : la tonique si la tonalité est majeure, la tonique du relatif majeur si elle est mineure, ex. G, Bb, F#> bq=<nombre de noires par mesure>
+S: <notes>
+A: <notes>
+T: <notes>
+B: <notes>
+Chaque note s’écrit hauteur réelle + « : » + durée en noires, séparées par des espaces. Exemples : G4:1  F#4:.5  B3:.75  R:2 (silence de 2 noires). Hauteurs en notation anglaise avec # ou b et le numéro d’octave (C4 = do central). Tiens compte de l’armure et des altérations. Clé de sol avec un 8 dessous (ténor) : le son réel est une octave plus bas que la note écrite. Les mesures s’enchaînent sans séparateur ; chaque voix doit avoir la même durée totale. Omets la ligne d’une voix absente. Si une note est douteuse, écris quand même ta meilleure lecture.`;
+function pitch(p){const m=/^([A-Ga-g])([#b]?)(-?\d)$/.exec(p);if(!m)return null;return 12*(+m[3]+1)+PC[m[1].toUpperCase()]+(m[2]==="#"?1:m[2]==="b"?-1:0)}
+function parse(t){
+const d=/do=([A-Ga-g][#b]?)/.exec(t),q=/bq=(\d+)/.exec(t);
+if(!d||!q)throw Error("La ligne « do=… bq=… » est manquante.");
+const pc=(((pitch(d[1][0].toUpperCase()+d[1].slice(1)+"4"))%12)+12)%12,bq=+q[1],V={};
+t.split("\n").forEach(l=>{const m=/^\s*([SATB])\s*:\s*(.+)$/.exec(l);if(!m)return;
+V[m[1]]=m[2].trim().split(/\s+/).map(k=>{const [p,du]=k.split(":"),n=Math.max(1,Math.round(parseFloat(du)*4));
+if(p==="R")return{r:1,n};const x=pitch(p);if(x==null||isNaN(n))throw Error("Note illisible : "+k);return{m:x,n}})});
+if(!Object.keys(V).length)throw Error("Aucune voix trouvée (lignes S:, A:, T:, B:).");
+return{pc,bq,V,L:d[1][0].toUpperCase()+d[1].slice(1)}}
+const oc=(m,pc)=>Math.floor((m-pc)/12);
+function windows(V,pc){const W={};[["S","A"],["T","B"]].forEach(g=>{const os=[];
+g.forEach(v=>(V[v]||[]).forEach(e=>e.m!=null&&os.push(oc(e.m,pc))));if(!os.length)return;
+let best=0,bc=1e9;for(let k=Math.min(...os);k<=Math.max(...os);k++){const c=os.reduce((a,x)=>a+Math.abs(x-k),0);if(c<bc){bc=c;best=k}}
+g.forEach(v=>W[v]=best)});return W}
+function slots(ev,pc,k){const s=[];ev.forEach(e=>{for(let i=0;i<e.n;i++){
+if(e.r)s.push({k:"r"});else if(i===0){const r=(((e.m-pc)%12)+12)%12,o=oc(e.m,pc)-k;
+s.push({k:"n",t:NM[r]+(o>0?"'".repeat(o):",".repeat(-o))})}else s.push({k:"c"})}});return s}
+const sym=x=>x.k==="n"?x.t:x.k==="c"?"-":"";
+const hb=(a,b)=>b.k==="c"&&a.k!=="r"?sym(a):(a.k==="r"&&b.k==="r"?"":sym(a)+","+sym(b));
+function cell(s){const k=s.map(x=>x.k).join("");
+if(k==="rrrr")return"";if(/^[nc]ccc$/.test(k))return sym(s[0]);
+if(k==="nccn")return s[0].t+" .,"+s[3].t;
+const a=hb(s[0],s[1]),b=hb(s[2],s[3]);return b===""?a:(a+" . "+b).trim()}
+function solfa(o){
+const W=windows(o.V,o.pc),ids=["S","A","T","B"].filter(v=>o.V[v]),SL={};
+let N=0;ids.forEach(v=>{SL[v]=slots(o.V[v],o.pc,W[v]);N=Math.max(N,SL[v].length)});
+const per=o.bq*4;N=Math.ceil(N/per)*per;
+ids.forEach(v=>{while(SL[v].length<N)SL[v].push({k:"r"})});
+const nb=N/4,C={},w=[];
+ids.forEach(v=>{C[v]=[];for(let b=0;b<nb;b++)C[v].push(cell(SL[v].slice(b*4,b*4+4)))});
+for(let b=0;b<nb;b++)w[b]=Math.max(...ids.map(v=>C[v][b].length),1);
+const meas=[];for(let m=0;m<nb/o.bq;m++){const r={};ids.forEach(v=>{let s="";
+for(let p=0;p<o.bq;p++){const b=m*o.bq+p;s+=C[v][b].padEnd(w[b]);
+if(p<o.bq-1)s+=(o.bq%2===0&&p===o.bq/2-1)?"|":":"}r[v]=s});meas.push(r)}
+const sys=[];let cur=[],len=0;
+meas.forEach(r=>{const L=r[ids[0]].length;if(cur.length&&len+L+1>40){sys.push(cur);cur=[];len=0}cur.push(r);len+=L+1});
+if(cur.length)sys.push(cur);
+return "Dô dia "+o.L+" · "+o.bq+" temps par mesure\n\n"+sys.map(g=>ids.map(v=>g.map(r=>r[v]).join("‖")+"‖").join("\n")).join("\n\n")}
+function render(){try{$("out").textContent=solfa(parse($("tx").value));return true}catch(e){$("out").textContent=e.message;return false}}
+let blobs=[];
+async function shrink(file){const im=await createImageBitmap(file),s=Math.min(1,1800/Math.max(im.width,im.height)),c=document.createElement("canvas");
+c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);c.getContext("2d").drawImage(im,0,0,c.width,c.height);
+return new Promise(r=>c.toBlob(r,"image/jpeg",.88))}
+async function addFiles(e){const fs=[...e.target.files];if(!fs.length)return;
+blobs=[];$("pv").innerHTML="";
+for(const f of fs){let b;try{b=await shrink(f)}catch(x){b=f}blobs.push(b);const i=new Image();i.alt="Photo "+blobs.length;i.src=URL.createObjectURL(b);$("pv").appendChild(i)}
+$("go").disabled=false;e.target.value="";st(blobs.length+(blobs.length>1?" photos prêtes":" photo prête")+". Touche « Lire la partition ».")}
+$("f").onchange=addFiles;$("fc").onchange=addFiles;
+const KEY="solfa_api_key",MODEL="claude-sonnet-5-5";
+const getKey=()=>{try{return localStorage.getItem(KEY)||""}catch(e){return ""}};
+const toB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(b)});
+$("key").value=getKey();
+$("sk").onclick=()=>{try{localStorage.setItem(KEY,$("key").value.trim());st("Clé enregistrée sur ce téléphone.")}catch(e){st("Impossible d’enregistrer la clé.")}};
+$("dk").onclick=()=>{try{localStorage.removeItem(KEY)}catch(e){}$("key").value="";st("Clé effacée.")};
+$("go").onclick=async()=>{
+const k=getKey();
+if(!k){st("Ajoute d’abord ta clé API dans « Réglages » en bas de page, ou saisis les notes à la main.");$("set").open=true;return}
+$("go").disabled=true;st("Lecture de la partition en cours…");
+try{
+const content=[];
+for(const b of blobs)content.push({type:"image",source:{type:"base64",media_type:b.type||"image/jpeg",data:await toB64(b)}});
+content.push({type:"text",text:PROMPT+(blobs.length>1?" Les "+blobs.length+" images sont les parties successives d’une même partition, dans l’ordre.":"")});
+const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"content-type":"application/json","x-api-key":k,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:MODEL,max_tokens:4000,messages:[{role:"user",content}]})});
+const data=await resp.json();
+if(!resp.ok)throw Error(data&&data.error&&data.error.message||("erreur "+resp.status));
+const text=(data.content||[]).map(c=>c.text||"").join("\n");
+$("tx").value=text.replace(/```[a-z]*/g,"").trim();
+st(render()?"Terminé. Vérifie les notes et corrige si besoin.":"Lecture reçue, mais le format est à corriger.")}
+catch(e){st("Échec de la lecture : "+(e.message||"erreur"))}
+$("go").disabled=!blobs.length};
+$("demo").onclick=()=>{$("tx").value=DEMO;render();st("Exemple : la partition « pendule », 4 voix.")};
+$("re").onclick=()=>{render()&&st("Solfa mis à jour.")};
+$("cp").onclick=async()=>{try{await navigator.clipboard.writeText($("out").textContent);st("Solfa copié.")}catch(e){st("Copie impossible : sélectionne le texte à la main.")}};
+if("serviceWorker"in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+</script></body></html>
