@@ -32,6 +32,17 @@ details{margin-top:26px;background:var(--card);border-radius:12px;padding:10px 1
 summary{font-weight:700;cursor:pointer}
 input[type=password],input[type=text]{width:100%;box-sizing:border-box;border-radius:12px;border:2px solid var(--a);background:var(--card);color:var(--tx);padding:10px;font:16px ui-monospace,Menlo,Consolas,monospace;margin:8px 0}
 .small{font-size:.9rem;opacity:.85}
+.vr{background:var(--card);border-radius:12px;padding:8px 10px;margin:8px 0}
+.vh{font-weight:700;font-size:.95rem;margin-bottom:6px}
+.vh.w{color:#b45309}
+.ch{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{margin:0;padding:8px 10px;border-radius:10px;background:var(--b1);color:var(--tx);font:700 .95rem ui-monospace,Menlo,Consolas,monospace;border:2px solid transparent;min-width:44px}
+.chip.on{border-color:#ff9f1c;background:#fff3d6;color:#08334f}
+.bar{opacity:.6;font-weight:800}
+#pn{position:fixed;left:0;right:0;bottom:0;background:var(--b1);border-top:2px solid var(--a);padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));z-index:5;box-shadow:0 -4px 14px rgba(0,0,0,.25)}
+#pn[hidden]{display:none}
+select{font-size:16px;font-family:inherit;padding:8px;border-radius:10px;border:2px solid var(--a);background:var(--card);color:var(--tx);margin:0 6px 6px 0}
+body.pnopen{padding-bottom:230px}
 </style></head><body><main>
 <h1>Photo → Solfa</h1>
 <p>Prends en photo une partition en solfège classique : l’app la transcrit en solfa, voix par voix.</p>
@@ -41,19 +52,34 @@ input[type=password],input[type=text]{width:100%;box-sizing:border-box;border-ra
 <button id="demo" class="alt">Voir un exemple</button>
 <div id="pv"></div>
 <p id="st" role="status"></p>
-<h2>Notes lues (à corriger si besoin)</h2>
-<p>Une ligne par voix : hauteur + « : » + durée en noires. R = silence.</p>
+<progress id="pg" max="100" value="0" hidden style="width:100%"></progress>
+<h2>Correction manuelle</h2>
+<p class="small">Après la lecture de l’IA, vérifie chaque voix : touche une note pour la corriger (un son est joué). Les barres | marquent les mesures. Quand tout est juste, touche « Valider ».</p>
+<p><label>Do = <select id="mdo"></select></label> <label>Temps par mesure <select id="mbq"><option>2</option><option>3</option><option>4</option><option>6</option></select></label></p>
+<div id="ed"></div>
+<details><summary>Mode texte (avancé)</summary>
+<p class="small">Une ligne par voix : hauteur + « : » + durée en noires. R = silence.</p>
 <textarea id="tx" spellcheck="false" placeholder="do=G bq=4&#10;S: G4:1 B4:1 R:2"></textarea>
-<button id="re">Mettre à jour le solfa</button>
+<button id="tt" class="alt">Appliquer le texte</button>
+</details>
+<button id="re">✅ Valider et générer le solfa</button>
 <h2>Solfa</h2>
 <pre id="out">Le solfa apparaîtra ici.</pre>
 <button id="cp" class="alt">Copier le solfa</button>
-<details id="set"><summary>⚙️ Réglages (lecture automatique)</summary>
-<p class="small">Pour lire une photo, l’app utilise l’IA de Claude avec ta propre clé API (console.anthropic.com). La clé reste uniquement dans ce téléphone, elle n’est jamais publiée sur GitHub.</p>
+<details id="set"><summary>⚙️ Réglages (IA de lecture)</summary>
+<p class="small">La lecture des photos se fait par défaut avec l’IA intégrée à l’app, gratuite et hors-ligne (téléchargée une seule fois au premier usage, avec le Wi-Fi). Option avancée : si tu colles ici une clé API Anthropic, l’app utilisera à la place l’IA de Claude, plus précise mais payante. La clé reste dans ce téléphone.</p>
 <input type="password" id="key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
 <button id="sk">Enregistrer la clé</button><button id="dk" class="alt">Effacer la clé</button>
 </details>
 </main>
+<div id="pn" hidden role="dialog" aria-label="Corriger la note">
+<div id="pt" class="small"></div>
+<select id="pl" aria-label="Note"><option>C</option><option>D</option><option>E</option><option>F</option><option>G</option><option>A</option><option>B</option><option value="R">Silence</option></select>
+<select id="pa" aria-label="Altération"><option value="">♮</option><option value="#">♯</option><option value="b">♭</option></select>
+<select id="po" aria-label="Octave"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select>
+<select id="pd" aria-label="Durée en temps"></select><br>
+<button id="pp">🔊 Écouter</button><button id="pi" class="alt">➕ Ajouter après</button><button id="px" class="alt">🗑 Supprimer</button><button id="pc" class="alt">Fermer</button>
+</div>
 <script>
 const $=id=>document.getElementById(id),st=t=>$("st").textContent=t;
 const PC={C:0,D:2,E:4,F:5,G:7,A:9,B:11},NM=["d","di","r","ri","m","f","fi","s","si","l","li","t"];
@@ -124,9 +150,36 @@ const toB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res
 $("key").value=getKey();
 $("sk").onclick=()=>{try{localStorage.setItem(KEY,$("key").value.trim());st("Clé enregistrée sur ce téléphone.")}catch(e){st("Impossible d’enregistrer la clé.")}};
 $("dk").onclick=()=>{try{localStorage.removeItem(KEY)}catch(e){}$("key").value="";st("Clé effacée.")};
+let LM=null,LP=null,LT=null;
+const LID="HuggingFaceTB/SmolVLM-256M-Instruct";
+const LPROMPT="Read this sheet music. For each voice (S, A, T, B) write one line with the notes in English notation with octave and duration in quarter notes, like: S: G4:1 B4:1 R:2. Answer only with these lines.";
+async function readLocalPhoto(){
+$("go").disabled=true;
+try{
+if(!LM){
+st("Chargement de l’IA hors-ligne…");
+LT=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0");
+const gpu=!!navigator.gpu;
+$("pg").hidden=false;
+const cb=p=>{if(p.status==="progress"&&p.progress!=null)$("pg").value=p.progress};
+LP=await LT.AutoProcessor.from_pretrained(LID,{progress_callback:cb});
+LM=await LT.AutoModelForVision2Seq.from_pretrained(LID,{dtype:gpu?{embed_tokens:"fp16",vision_encoder:"q4",decoder_model_merged:"q4"}:{embed_tokens:"q8",vision_encoder:"q8",decoder_model_merged:"q8"},device:gpu?"webgpu":"wasm",progress_callback:cb});
+$("pg").hidden=true}
+st("Lecture de la partition… (cela peut prendre quelques minutes)"+(blobs.length>1?" Seule la première photo est lue.":""));
+const image=await LT.load_image(URL.createObjectURL(blobs[0]));
+const text=LP.apply_chat_template([{role:"user",content:[{type:"image"},{type:"text",text:LPROMPT}]}],{add_generation_prompt:true});
+const inputs=await LP(text,[image],{do_image_splitting:true});
+const ids=await LM.generate({...inputs,max_new_tokens:600});
+const out=LP.batch_decode(ids.slice(null,[inputs.input_ids.dims.at(-1),null]),{skip_special_tokens:true});
+let t=out[0].replace(/```[a-z]*/g,"").trim();
+if(!/do=/.test(t))t="do=C bq=4\n"+t;
+$("tx").value=t;
+loadTx();st("Lecture terminée. Vérifie la tonalité, la mesure et chaque note dans l’éditeur, puis touche « Valider ».")}
+catch(e){st("Échec de la lecture locale : "+(e.message||e));$("pg").hidden=true}
+$("go").disabled=!blobs.length}
 $("go").onclick=async()=>{
 const k=getKey();
-if(!k){st("Ajoute d’abord ta clé API dans « Réglages » en bas de page, ou saisis les notes à la main.");$("set").open=true;return}
+if(!k){return readLocalPhoto()}
 $("go").disabled=true;st("Lecture de la partition en cours…");
 try{
 const content=[];
@@ -137,11 +190,78 @@ const data=await resp.json();
 if(!resp.ok)throw Error(data&&data.error&&data.error.message||("erreur "+resp.status));
 const text=(data.content||[]).map(c=>c.text||"").join("\n");
 $("tx").value=text.replace(/```[a-z]*/g,"").trim();
-st(render()?"Terminé. Vérifie les notes et corrige si besoin.":"Lecture reçue, mais le format est à corriger.")}
+loadTx();st("Lecture terminée. Corrige les notes dans l’éditeur ci-dessous, puis touche « Valider ».")}
 catch(e){st("Échec de la lecture : "+(e.message||"erreur"))}
 $("go").disabled=!blobs.length};
-$("demo").onclick=()=>{$("tx").value=DEMO;render();st("Exemple : la partition « pendule », 4 voix.")};
-$("re").onclick=()=>{render()&&st("Solfa mis à jour.")};
+
+const VN={S:"Soprano",A:"Alto",T:"Ténor",B:"Basse"},VO=["S","A","T","B"];
+const DUR=[[".25","¼"],[".5","½"],[".75","¾"],["1","1"],["1.5","1½"],["2","2"],["3","3"],["4","4"]];
+const TON=["C","C#","Db","D","Eb","E","F","F#","G","Ab","A","Bb","B"];
+let M={d:"C",q:4,V:{}},sel=null,AC=null;
+$("mdo").innerHTML=TON.map(t=>"<option>"+t+"</option>").join("");
+$("pd").innerHTML=DUR.map(x=>'<option value="'+x[0]+'">'+x[1]+" temps</option>").join("");
+const r2=x=>Math.round(x*100)/100;
+function txtToM(t){const d=/do=([A-Ga-g][#b]?)/.exec(t),q=/bq=(\d+)/.exec(t),m={d:d?d[1][0].toUpperCase()+d[1].slice(1):"C",q:q?+q[1]:4,V:{}};
+t.split("\n").forEach(l=>{const x=/^\s*([SATB])\s*:\s*(.*)$/.exec(l);if(x)m.V[x[1]]=x[2].trim()?x[2].trim().split(/\s+/):[]});return m}
+function mToTxt(m){return "do="+m.d+" bq="+m.q+"\n"+VO.filter(v=>m.V[v]).map(v=>v+": "+m.V[v].join(" ")).join("\n")}
+function beep(p){try{const n=pitch(p);if(n==null)return;AC=AC||new(window.AudioContext||window.webkitAudioContext)();
+const o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime;o.type="triangle";o.frequency.value=440*Math.pow(2,(n-69)/12);
+g.gain.setValueAtTime(.25,t);g.gain.exponentialRampToValueAtTime(.001,t+.6);o.connect(g);g.connect(AC.destination);o.start();o.stop(t+.6)}catch(e){}}
+const lab=tk=>{const [p,d]=tk.split(":");return (p==="R"?"R":p.replace("#","♯").replace(/^([A-G])b/,"$1♭"))+" "+d};
+function sync(){$("tx").value=mToTxt(M);$("out").textContent="Corrige si besoin, puis touche « Valider et générer le solfa ».";}
+function renderEd(){
+$("mdo").value=M.d;$("mbq").value=String(M.q);
+const ids=VO.filter(v=>M.V[v]),tot={};
+ids.forEach(v=>tot[v]=r2(M.V[v].reduce((a,k)=>a+(parseFloat(k.split(":")[1])||0),0)));
+const mx=Math.max(0,...ids.map(v=>tot[v])),ed=$("ed");ed.innerHTML="";
+ids.forEach(v=>{
+const row=document.createElement("div");row.className="vr";
+const h=document.createElement("div");h.className="vh";
+let w="";if(tot[v]!==mx)w=" ⚠️ plus courte que les autres voix";else if(r2(tot[v]%M.q)!==0)w=" ⚠️ dernière mesure incomplète";
+h.textContent=VN[v]+" — "+tot[v]+" temps"+w;if(w)h.className="vh w";row.appendChild(h);
+const ch=document.createElement("div");ch.className="ch";let cum=0;
+M.V[v].forEach((tk,i)=>{
+const b=document.createElement("button");b.type="button";b.className="chip"+(sel&&sel.v===v&&sel.i===i?" on":"");b.textContent=lab(tk);
+b.onclick=()=>{sel={v,i};beep(tk.split(":")[0]);renderEd();showPn()};ch.appendChild(b);
+cum+=parseFloat(tk.split(":")[1])||0;
+if(cum>0&&Math.abs(cum/M.q-Math.round(cum/M.q))<1e-9){const sp=document.createElement("span");sp.className="bar";sp.textContent="|";ch.appendChild(sp)}});
+const ad=document.createElement("button");ad.type="button";ad.className="chip";ad.textContent="＋";ad.setAttribute("aria-label","Ajouter une note à "+VN[v]);
+ad.onclick=()=>{const L=M.V[v];L.push(L.length?L[L.length-1]:"C4:1");sel={v,i:L.length-1};sync();renderEd();showPn()};
+ch.appendChild(ad);row.appendChild(ch);ed.appendChild(row)});
+const miss=VO.filter(v=>!M.V[v]);
+if(miss.length){const p=document.createElement("p");miss.forEach(v=>{const b=document.createElement("button");b.type="button";b.className="alt";b.textContent="＋ Voix "+VN[v];
+b.onclick=()=>{M.V[v]=[];sync();renderEd()};p.appendChild(b)});ed.appendChild(p)}}
+function showPn(){
+if(!sel||!M.V[sel.v]||!M.V[sel.v][sel.i]){hidePn();return}
+const [p,d]=M.V[sel.v][sel.i].split(":");
+if(!DUR.some(x=>x[0]===d)){const o=document.createElement("option");o.value=d;o.textContent=d+" temps";$("pd").appendChild(o)}
+$("pd").value=d;
+if(p==="R"){$("pl").value="R";$("pa").value="";$("po").value="4"}
+else{const m=/^([A-Ga-g])([#b]?)(-?\d)$/.exec(p);if(m){$("pl").value=m[1].toUpperCase();$("pa").value=m[2];$("po").value=m[3]}}
+$("pa").disabled=$("po").disabled=$("pl").value==="R";
+$("pt").textContent=VN[sel.v]+" — note "+(sel.i+1)+" sur "+M.V[sel.v].length;
+$("pn").hidden=false;document.body.classList.add("pnopen")}
+function hidePn(){sel=null;$("pn").hidden=true;document.body.classList.remove("pnopen");renderEd()}
+function applyPn(){if(!sel)return;
+const l=$("pl").value,tok=l==="R"?"R:"+$("pd").value:l+$("pa").value+$("po").value+":"+$("pd").value;
+M.V[sel.v][sel.i]=tok;$("pa").disabled=$("po").disabled=l==="R";sync();renderEd();if(l!=="R")beep(tok.split(":")[0])}
+["pl","pa","po","pd"].forEach(id=>$(id).onchange=applyPn);
+$("pp").onclick=()=>{if(sel)beep(M.V[sel.v][sel.i].split(":")[0])};
+$("pi").onclick=()=>{if(!sel)return;const L=M.V[sel.v];L.splice(sel.i+1,0,L[sel.i]);sel.i++;sync();renderEd();showPn()};
+$("px").onclick=()=>{if(!sel)return;const L=M.V[sel.v];L.splice(sel.i,1);if(sel.i>=L.length)sel.i=L.length-1;sync();renderEd();showPn()};
+$("pc").onclick=hidePn;
+$("mdo").onchange=()=>{M.d=$("mdo").value;sync()};
+$("mbq").onchange=()=>{M.q=+$("mbq").value;sync();renderEd()};
+function loadTx(){M=txtToM($("tx").value);sel=null;$("pn").hidden=true;document.body.classList.remove("pnopen");renderEd();$("out").textContent="Corrige si besoin, puis touche « Valider et générer le solfa »."}
+$("tt").onclick=()=>{loadTx();st("Texte appliqué à l’éditeur.")};
+renderEd();
+$("demo").onclick=()=>{$("tx").value=DEMO;loadTx();st("Exemple chargé : la partition « pendule », 4 voix. Corrige si besoin, puis touche « Valider ».")};
+$("re").onclick=()=>{
+if($("tx").value!==mToTxt(M))loadTx();
+const ids=VO.filter(v=>M.V[v]&&M.V[v].length),tt=ids.map(v=>r2(M.V[v].reduce((a,k)=>a+(parseFloat(k.split(":")[1])||0),0)));
+if(!render())return;
+st(tt.length&&Math.max(...tt)!==Math.min(...tt)?"Solfa généré, mais attention : les voix n’ont pas la même durée.":"Solfa généré.");
+$("out").scrollIntoView({behavior:"smooth",block:"start"})};
 $("cp").onclick=async()=>{try{await navigator.clipboard.writeText($("out").textContent);st("Solfa copié.")}catch(e){st("Copie impossible : sélectionne le texte à la main.")}};
 if("serviceWorker"in navigator)addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
 </script></body></html>
