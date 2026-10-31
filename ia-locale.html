@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test IA locale</title>
+<style>
+body{margin:0;font-family:Roboto,system-ui,sans-serif;background:linear-gradient(#d4f1ff,#7fd0fb) fixed;color:#08334f;min-height:100vh}
+main{max-width:640px;margin:0 auto;padding:16px 16px 48px}
+h1{color:#1565c0;font-size:1.8rem;margin:8px 0}
+button,label.btn{display:inline-block;font:700 1rem inherit;font-family:inherit;border:0;border-radius:12px;padding:12px 16px;background:#1565c0;color:#fff;margin:0 8px 8px 0;cursor:pointer;position:relative;overflow:hidden}
+label.btn input{position:absolute;inset:0;opacity:0;width:100%;height:100%;font-size:0}
+button:disabled{opacity:.45}
+img{max-width:100%;border-radius:12px;display:block;margin:8px 0}
+textarea{width:100%;box-sizing:border-box;min-height:200px;border-radius:12px;border:2px solid #1565c0;padding:10px;font:14px/1.5 ui-monospace,monospace}
+progress{width:100%}
+#st{font-weight:700;min-height:1.4em}
+.small{font-size:.9rem;opacity:.85}
+</style></head><body><main>
+<h1>Test : IA dans le téléphone</h1>
+<p class="small">Expérience gratuite. Au premier lancement, le modèle (environ 150 à 500 Mo) se télécharge une seule fois, avec le Wi-Fi. Ensuite il est gardé dans le téléphone. Le résultat peut être très imprécis : c’est un test.</p>
+<label class="btn">📷 Choisir une photo<input type="file" id="f" accept="image/*"></label>
+<button id="go" disabled>Lancer l’IA locale</button>
+<img id="pv" alt="" hidden>
+<progress id="pg" max="100" value="0" hidden></progress>
+<p id="st" role="status"></p>
+<textarea id="out" placeholder="La réponse de l’IA apparaîtra ici."></textarea>
+<p><button id="cp">Copier</button></p>
+<p class="small"><a href="index.html">← Retour à l’app</a></p>
+</main>
+<script type="module">
+const $=id=>document.getElementById(id),st=t=>$("st").textContent=t;
+let file=null,model=null,processor=null,T=null;
+const MODEL_ID="HuggingFaceTB/SmolVLM-256M-Instruct";
+const PROMPT=`Read this sheet music. For each voice (S, A, T, B) write one line with the notes in English notation with octave and duration in quarter notes, like: S: G4:1 B4:1 R:2. Answer only with these lines.`;
+
+$("f").onchange=e=>{file=e.target.files[0];if(!file)return;
+$("pv").src=URL.createObjectURL(file);$("pv").hidden=false;$("go").disabled=false;st("Photo prête.")};
+
+async function load(){
+  if(model)return;
+  st("Chargement de la bibliothèque…");
+  T=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0");
+  const webgpu=!!navigator.gpu;
+  st("Téléchargement du modèle ("+(webgpu?"GPU":"processeur, plus lent")+")…");
+  $("pg").hidden=false;
+  const progress_callback=p=>{if(p.status==="progress"&&p.progress!=null){$("pg").value=p.progress}};
+  processor=await T.AutoProcessor.from_pretrained(MODEL_ID,{progress_callback});
+  model=await T.AutoModelForVision2Seq.from_pretrained(MODEL_ID,{
+    dtype:webgpu?{embed_tokens:"fp16",vision_encoder:"q4",decoder_model_merged:"q4"}:{embed_tokens:"q8",vision_encoder:"q8",decoder_model_merged:"q8"},
+    device:webgpu?"webgpu":"wasm",progress_callback});
+  $("pg").hidden=true;
+}
+
+$("go").onclick=async()=>{
+  $("go").disabled=true;$("out").value="";
+  try{
+    await load();
+    st("Lecture de la partition… (peut prendre plusieurs minutes)");
+    const image=await T.load_image(URL.createObjectURL(file));
+    const messages=[{role:"user",content:[{type:"image"},{type:"text",text:PROMPT}]}];
+    const text=processor.apply_chat_template(messages,{add_generation_prompt:true});
+    const inputs=await processor(text,[image],{do_image_splitting:true});
+    const ids=await model.generate({...inputs,max_new_tokens:600});
+    const out=processor.batch_decode(ids.slice(null,[inputs.input_ids.dims.at(-1),null]),{skip_special_tokens:true});
+    $("out").value=out[0];
+    st("Terminé. Vérifie : un petit modèle se trompe souvent.");
+  }catch(e){
+    st("Échec : "+(e.message||e));
+    $("pg").hidden=true;
+  }
+  $("go").disabled=!file;
+};
+$("cp").onclick=async()=>{try{await navigator.clipboard.writeText($("out").value);st("Copié.")}catch(e){st("Copie impossible.")}};
+</script></body></html>
